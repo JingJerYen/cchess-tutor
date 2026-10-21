@@ -11,6 +11,9 @@ import { type Move, type Position, type Side, type Square, moveToICCS, sideOf } 
 import { mainLine, openings } from "./content";
 import type { Opening, OpeningNode } from "./content/types";
 import { createBoard, renderBoard } from "./ui/board";
+import { analysisFor } from "./content/analysis";
+import type { MoveEval, PositionAnalysis } from "./content/analysis-types";
+import { describeMove } from "./engine/features";
 
 type Mode = "learn" | "quiz" | "free";
 
@@ -35,6 +38,8 @@ interface Feedback {
   /** 質疑用：著法之前的局面與著法文字 */
   before?: Position;
   moveText?: string;
+  /** 引擎怎麼看這一步（一行小字） */
+  engine?: string;
 }
 
 interface PlaybackStep {
@@ -71,6 +76,21 @@ interface Objection {
   move: string;
   explanation: string;
   text: string;
+}
+
+/** 引擎對這一步的看法，一行小字；沒有資料就回傳 undefined */
+function engineLine(pa: PositionAnalysis | undefined, ev: MoveEval | undefined, isBook = false): string | undefined {
+  if (!pa || !ev || ev.cpLoss === null) return undefined;
+  const rank = pa.moves.indexOf(ev) + 1;
+  const best = pa.moves[0];
+  const loss = (ev.cpLoss / 100).toFixed(1);
+  if (rank === 1) return "引擎：這也是它的第一選擇。";
+  if (ev.cpLoss < 10) return `引擎：排第 ${rank}／${pa.moves.length}，跟最佳走法「${best?.zh ?? ""}」一樣好。`;
+  if (isBook && ev.cpLoss >= 100) {
+    // 引擎（尤其沒有 NNUE、深度有限時）對開局的品味不一定符合人類理論；書上的走法以實戰為準
+    return `引擎在這個深度不喜歡這步（比「${best?.zh ?? ""}」差 ${loss} 兵），但這是人類實戰常見的走法；引擎對開局的判斷不一定準。`;
+  }
+  return `引擎：排第 ${rank}／${pa.moves.length}，比最佳走法「${best?.zh ?? ""}」差 ${loss} 兵。`;
 }
 
 const OBJECTIONS_KEY = "cchess.objections";
@@ -298,20 +318,55 @@ export class App {
       "照主線繼續",
       () => { this.feedback = null; this.advanceAlongMain(); },
     ];
+    const pa = analysisFor(this.opening.id)?.positions[toFEN(before)];
+    const ev = pa?.moves.find((m) => m.iccs === iccs);
+    const engine = engineLine(pa, ev, !!match);
+    const showPv: [string, () => void] | null = ev && ev.pvZh.length > 1
+      ? ["看推演", () => this.startEnginePlayback(before, text, ev, back[1])]
+      : null;
 
     if (!match) {
       if (this.mode === "quiz") this.quizTotal++;
+      const common = { pos: after, lastMove: move, before, moveText: text, engine };
+      const continueActions = mainNode ? [back, followMain] : [back];
+      if (!ev || ev.cpLoss === null) {
+        return {
+          kind: "off",
+          title: `${text}：本課沒有這一步`,
+          note: `還沒有這一步的分析。${mainText}`,
+          actions: continueActions,
+          ...common,
+        };
+      }
+      const loss = ev.cpLoss;
+      const reply = ev.pvZh[1];
+      const replyPos = makeMove(before, move);
+      const replyDesc = reply ? describeMove(replyPos, parseChinese(replyPos, reply)) : "";
+      const replyText = reply ? `對方最好的應對是「${reply}」${replyDesc ? "，" + replyDesc : ""}。` : "";
+      if (loss < 30) {
+        return {
+          kind: "so",
+          title: `${text}：也可以`,
+          note: `引擎認為這步跟最佳走法差不多。本課不走這條路，所以沒有後續講解。${mainText}`,
+          actions: showPv ? [...continueActions, showPv] : continueActions,
+          ...common,
+        };
+      }
+      if (loss < 100) {
+        return {
+          kind: "so",
+          title: `${text}：稍差一點`,
+          note: `不算錯，但有更好的走法。${replyText}${mainText}`,
+          actions: showPv ? [...continueActions, showPv] : continueActions,
+          ...common,
+        };
+      }
       return {
-        kind: "off",
-        title: `${text}：這步不在本課的開局樹裡`,
-        note:
-          "目前還沒有這一步的講解。接上引擎之後（下一階段），App 會在這裡算出對方的應對並推演給你看。" +
-          mainText,
-        actions: mainNode ? [back, followMain] : [back],
-        pos: after,
-        lastMove: move,
-        before,
-        moveText: text,
+        kind: "bad",
+        title: `${text}：${loss < 250 ? "明顯吃虧" : "大錯"}`,
+        note: `引擎認為這步會損失約 ${(loss / 100).toFixed(1)} 個兵的價值。${replyText}`,
+        actions: showPv ? [showPv, back] : [back],
+        ...common,
       };
     }
     const kind = match.kind ?? "main";
@@ -328,6 +383,7 @@ export class App {
         lastMove: move,
         before,
         moveText: text,
+        engine,
       };
     }
     if (kind === "alt") {
@@ -342,6 +398,7 @@ export class App {
         lastMove: move,
         before,
         moveText: text,
+        engine,
       };
     }
     if (this.mode === "quiz") this.quizTotal++;
@@ -358,6 +415,7 @@ export class App {
       lastMove: move,
       before,
       moveText: text,
+      engine,
     };
   }
 
@@ -399,6 +457,36 @@ export class App {
       index: 0,
       summary: node.punishSummary,
       principle: node.principle,
+      onExit,
+    };
+    this.feedback = null;
+    this.render();
+  }
+
+  /** 用引擎主變做推演：每一步的說明由程式描述（吃子、將軍、捉子） */
+  private startEnginePlayback(before: Position, firstZh: string, ev: MoveEval, onExit: () => void): void {
+    const steps: PlaybackStep[] = [];
+    let pos = before;
+    ev.pvZh.forEach((zh, i) => {
+      const m = parseChinese(pos, zh);
+      const side = pos.turn;
+      const desc = describeMove(pos, m);
+      const label = `${sideName(side)}：${zh}${i === 0 ? "（你的走法）" : ""}`;
+      pos = makeMove(pos, m);
+      steps.push({ label, note: desc || (i === 1 ? "引擎的最佳應對。" : ""), move: m, after: pos });
+    });
+    let summary: string;
+    if (ev.mate !== null) summary = ev.mate > 0 ? `引擎看到你有 ${ev.mate} 步殺。` : `引擎看到對方有 ${-ev.mate} 步殺。`;
+    else if (ev.cp !== null) {
+      const v = (Math.abs(ev.cp) / 100).toFixed(1);
+      summary = ev.cp === 0 ? "這條線走完，引擎認為雙方均勢。" : `這條線走完，引擎認為你${ev.cp < 0 ? "落後" : "領先"}約 ${v} 個兵的價值。`;
+    } else summary = "";
+    this.playback = {
+      title: `推演：如果走 ${firstZh}`,
+      before,
+      steps,
+      index: 0,
+      summary,
       onExit,
     };
     this.feedback = null;
@@ -575,6 +663,7 @@ export class App {
     return `
       <div class="verdict ${f.kind}">${esc(f.title)}</div>
       ${f.note ? `<p class="note">${esc(f.note)}</p>` : ""}
+      ${f.engine ? `<p class="muted">${esc(f.engine)}</p>` : ""}
       ${this.detailBlock(f.detail)}
       ${f.principle ? `<p class="principle">${esc(f.principle)}</p>` : ""}
       <div class="row">${f.actions.map(([label, fn], i) => this.btn(label, fn, i === 0 ? "primary" : "")).join("")}</div>

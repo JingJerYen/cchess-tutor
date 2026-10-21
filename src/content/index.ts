@@ -1,28 +1,16 @@
-import type { Opening, OpeningNode } from "./types";
-import { opening as c7x } from "./openings/c7x-zhongpao-guohe-che";
+/**
+ * 前端用的開局內容：手寫開局樹 ＋ 產線講解（若有）。
+ * 這裡用 Vite 的 import.meta.glob 載入 JSON；產線腳本請改從 ./openings 與 ./tree 匯入。
+ */
+import type { Opening } from "./types";
+import type { ExplanationsFile } from "./explanations-types";
+import { rawOpenings } from "./openings";
+import { applyExplanations } from "./tree";
 
-export const openings: Opening[] = [c7x];
+export { mainLine, walk, applyExplanations } from "./tree";
 
-/** 主線：從根開始，每層取第一個 main 節點 */
-export function mainLine(opening: Opening): OpeningNode[] {
-  const line: OpeningNode[] = [];
-  let children: OpeningNode[] | undefined = opening.root;
-  while (children) {
-    const next: OpeningNode | undefined = children.find((n) => (n.kind ?? "main") === "main");
-    if (!next) break;
-    line.push(next);
-    children = next.children;
-  }
-  return line;
-}
+const generated = import.meta.glob<ExplanationsFile>("./explanations/*.json", { eager: true, import: "default" });
+const generatedByOpening = new Map<string, ExplanationsFile>();
+for (const g of Object.values(generated)) generatedByOpening.set(g.opening, g);
 
-/** 走訪整棵樹（含主線、變著、錯著），給測試與統計用 */
-export function* walk(
-  nodes: OpeningNode[],
-  path: OpeningNode[] = [],
-): Generator<{ node: OpeningNode; path: OpeningNode[] }> {
-  for (const node of nodes) {
-    yield { node, path };
-    if (node.children) yield* walk(node.children, [...path, node]);
-  }
-}
+export const openings: Opening[] = rawOpenings.map((o) => applyExplanations(o, generatedByOpening.get(o.id)));

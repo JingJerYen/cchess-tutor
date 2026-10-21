@@ -34,6 +34,8 @@ export interface OpeningNode {
   punish?: PunishStep[];
   /** 推演結束後的結論 */
   punishSummary?: string;
+  /** 這個節點的講解是否來自產線並通過審稿 */
+  verified?: boolean;
 }
 
 export interface Opening {
