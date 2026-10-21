@@ -1,0 +1,19 @@
+# Render Blueprint：問教練後端
+# 在 Render 新增 Blueprint 指到這個 repo 即可；ANTHROPIC_API_KEY 要在 Render 的儀表板手動填。
+services:
+  - type: web
+    name: cchess-tutor-ask
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build:server
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CCHESS_ASK_MODEL
+        value: claude-sonnet-5-5
+      - key: CCHESS_RATE_PER_HOUR
+        value: "30"
+      - key: NODE_VERSION
+        value: "22"

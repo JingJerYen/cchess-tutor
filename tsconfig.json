@@ -23,6 +23,7 @@
   "include": [
     "src",
     "tests",
-    "pipeline"
+    "pipeline",
+    "server"
   ]
 }

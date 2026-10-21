@@ -78,6 +78,8 @@ interface Objection {
   move: string;
   explanation: string;
   text: string;
+  /** 教練（後端）的回答，有問到才有 */
+  answer?: string;
 }
 
 /** 樹外走法：引擎排名一行小字；沒有資料就回傳 undefined */
@@ -114,6 +116,16 @@ function scoreChip(v: number | null): string {
 
 const OBJECTIONS_KEY = "cchess.objections";
 const OPENING_KEY = "cchess.opening";
+const ASK_URL_KEY = "cchess.askUrl";
+
+/** 後端網址：本機設定優先，其次是建置時的 VITE_ASK_URL */
+function getAskUrl(): string {
+  try {
+    const v = localStorage.getItem(ASK_URL_KEY);
+    if (v) return v;
+  } catch { /* 忽略 */ }
+  return (import.meta.env.VITE_ASK_URL as string | undefined) ?? "";
+}
 
 function loadObjections(): Objection[] {
   try {
@@ -138,7 +150,8 @@ function formatObjections(list: Objection[]): string {
     .map(
       (o, i) =>
         `${i + 1}. [${o.time.slice(0, 16).replace("T", " ")}] ${o.opening}\n` +
-        `   局面：${o.fen}\n   著法：${o.move}\n   講解：${o.explanation}\n   我的疑問：${o.text}`,
+        `   局面：${o.fen}\n   著法：${o.move}\n   講解：${o.explanation}\n   我的疑問：${o.text}` +
+        (o.answer ? `\n   教練回答：${o.answer}` : ""),
     )
     .join("\n\n");
 }
@@ -178,6 +191,11 @@ export class App {
   /** 質疑／看不懂的紀錄（存在瀏覽器本機，可複製貼出） */
   private objections: Objection[] = loadObjections();
   private askOpen = false;
+  private askBusy = false;
+  private askError = "";
+  /** 目前這段講解的問答串（換講解就清掉） */
+  private askThread: { q: string; a: string; verified: boolean }[] = [];
+  private askKey = "";
   private showObjections = false;
 
   constructor(root: HTMLElement) {
@@ -191,14 +209,12 @@ export class App {
 
     root.innerHTML = `
       <header></header>
-      <nav class="tabs"></nav>
       <div class="board-wrap"></div>
       <section class="panel"></section>
     `;
     this.header = root.querySelector("header")!;
     this.panel = root.querySelector(".panel")!;
     this.svg = createBoard(root.querySelector(".board-wrap")!);
-    this.renderTabs(root.querySelector("nav.tabs")!);
     this.setMode("learn");
   }
 
@@ -235,14 +251,11 @@ export class App {
 
   // ---------- 模式切換 ----------
 
-  private renderTabs(nav: HTMLElement): void {
-    const tabs: [Mode, string][] = [["learn", "學習"], ["quiz", "測驗"], ["free", "自由走"]];
-    nav.innerHTML = tabs
-      .map(([m, label]) => `<button data-mode="${m}" aria-pressed="${m === this.mode}">${label}</button>`)
-      .join("");
-    nav.querySelectorAll<HTMLButtonElement>("button[data-mode]").forEach((b) => {
-      b.onclick = () => this.setMode(b.dataset.mode as Mode);
-    });
+  private renderTabs(): string {
+    const tabs: [Mode, string][] = [["learn", "學習"], ["quiz", "測驗"], ["free", "自由"]];
+    return `<nav class="tabs">${tabs
+      .map(([m, label]) => `<button data-a="${this.action(() => this.setMode(m))}" aria-pressed="${m === this.mode}">${label}</button>`)
+      .join("")}</nav>`;
   }
 
   private setMode(mode: Mode): void {
@@ -264,7 +277,6 @@ export class App {
       this.pos = startPosition();
       this.lastMove = null;
     }
-    this.renderTabs(document.querySelector("nav.tabs")!);
     this.render();
   }
 
@@ -559,10 +571,14 @@ export class App {
 
   // ---------- 畫面 ----------
 
-  private btn(label: string, fn: () => void, cls = ""): string {
+  private action(fn: () => void): string {
     const id = `a${this.actions.size}`;
     this.actions.set(id, fn);
-    return `<button data-a="${id}" class="${cls}">${esc(label)}</button>`;
+    return id;
+  }
+
+  private btn(label: string, fn: () => void, cls = ""): string {
+    return `<button data-a="${this.action(fn)}" class="${cls}">${esc(label)}</button>`;
   }
 
   /** 面板標題列：左邊標題，右邊小工具按鈕 */
@@ -581,9 +597,9 @@ export class App {
   private render(): void {
     this.actions.clear();
     const n = this.objections.length;
-    const draft = this.opening.verified ? "" : `<span class="badge">草稿</span>`;
-    this.header.innerHTML = `<h1>${esc(this.opening.title)}</h1><div>${draft}${this.tool(
-      "課程",
+    const lessonNo = openings.indexOf(this.opening) + 1;
+    this.header.innerHTML = `${this.renderTabs()}<div class="tools">${this.tool(
+      `課程 ${lessonNo}`,
       () => { this.showLessons = !this.showLessons; this.showObjections = false; this.render(); },
       this.showLessons,
     )}${this.tool(
@@ -626,6 +642,7 @@ export class App {
     else html = this.renderFree();
 
     this.panel.innerHTML = html;
+    if (!this.askBusy) this.panel.scrollTop = 0;
     for (const host of [this.header, this.panel]) {
       host.querySelectorAll<HTMLButtonElement>("button[data-a]").forEach((b) => {
         b.onclick = () => this.actions.get(b.dataset.a!)?.();
@@ -637,34 +654,75 @@ export class App {
 
   // ---------- 質疑 ----------
 
-  /** 「有疑問？」小按鈕，展開後是輸入框。ctx 是這段講解對應的局面與著法。 */
+  /** 「有疑問？」：輸入框 ＋ 問教練（需要後端）／記下來。ctx 是這段講解對應的局面與著法。 */
   private renderAsk(ctx: { before: Position; move: string; explanation: string }): string {
-    if (!this.askOpen) {
-      return `<div class="askline">${this.btn("有疑問？", () => { this.askOpen = true; this.render(); }, "link")}</div>`;
+    const key = `${toFEN(ctx.before)}|${ctx.move}`;
+    if (key !== this.askKey) { this.askKey = key; this.askThread = []; this.askError = ""; }
+    const thread = this.askThread.map((t) => `
+      <div class="qa">
+        <p class="q">你：${esc(t.q)}</p>
+        <p class="a">教練：${esc(t.a)}${t.verified ? "" : `<span class="muted">（這段回答提到了資料外的著法，請當參考）</span>`}</p>
+      </div>`).join("");
+    if (!this.askOpen && !thread) {
+      return `<div class="askline">${this.btn("有疑問？問教練", () => { this.askOpen = true; this.render(); }, "link")}</div>`;
     }
-    const submit = () => {
-      const ta = this.panel.querySelector<HTMLTextAreaElement>("textarea");
-      const text = ta?.value.trim() ?? "";
-      if (!text) return;
+    if (!this.askOpen) {
+      return `<div class="ask">${thread}<div class="askline">${this.btn("追問", () => { this.askOpen = true; this.render(); }, "link")}</div></div>`;
+    }
+    const readText = () => this.panel.querySelector<HTMLTextAreaElement>("textarea.askbox")?.value.trim() ?? "";
+    const record = (text: string, answer?: string) => {
       this.objections.push({
-        time: new Date().toISOString(),
-        opening: this.opening.title,
-        fen: toFEN(ctx.before),
-        move: ctx.move,
-        explanation: ctx.explanation,
-        text,
+        time: new Date().toISOString(), opening: this.opening.title, fen: toFEN(ctx.before),
+        move: ctx.move, explanation: ctx.explanation, text, answer,
       });
       saveObjections(this.objections);
+    };
+    const save = () => {
+      const text = readText();
+      if (!text) return;
+      record(text);
       this.askOpen = false;
       this.render();
     };
+    const askCoach = async () => {
+      const text = readText();
+      if (!text || this.askBusy) return;
+      const url = getAskUrl();
+      if (!url) { this.askError = "還沒設定後端網址：按上方「疑問」，在「教練後端」填入 Render 的網址。"; this.render(); return; }
+      this.askBusy = true; this.askError = ""; this.render();
+      try {
+        const res = await fetch(`${url.replace(/\/$/, "")}/api/ask`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fen: toFEN(ctx.before), move: ctx.move, explanation: ctx.explanation, question: text,
+            history: this.askThread.map((t) => ({ q: t.q, a: t.a })),
+          }),
+        });
+        const data = (await res.json()) as { answer?: string; verified?: boolean; error?: string };
+        if (!res.ok || !data.answer) throw new Error(data.error ?? `後端回應 ${res.status}`);
+        this.askThread.push({ q: text, a: data.answer, verified: data.verified !== false });
+        record(text, data.answer);
+        this.askOpen = false;
+      } catch (e) {
+        this.askError = `問不到教練：${(e as Error).message}`;
+      } finally {
+        this.askBusy = false;
+        this.render();
+      }
+    };
+    const busy = this.askBusy
+      ? `<p class="muted">教練思考中…</p>`
+      : `<div class="row">
+          ${this.btn("問教練", () => { void askCoach(); }, "primary")}
+          ${this.btn("只記下來", save)}
+          ${this.btn("取消", () => { this.askOpen = false; this.askError = ""; this.render(); })}
+        </div>`;
     return `
       <div class="ask">
-        <textarea rows="2" placeholder="哪裡不同意、哪裡看不懂？"></textarea>
-        <div class="row">
-          ${this.btn("記下來", submit, "primary")}
-          ${this.btn("取消", () => { this.askOpen = false; this.render(); })}
-        </div>
+        ${thread}
+        <textarea class="askbox" rows="2" placeholder="哪裡不同意、哪裡看不懂？"></textarea>
+        ${busy}
+        ${this.askError ? `<p class="note">${esc(this.askError)}</p>` : ""}
       </div>
     `;
   }
@@ -673,8 +731,21 @@ export class App {
     const list = this.objections;
     const text = formatObjections(list);
     const close = this.tool("關閉", () => { this.showObjections = false; this.render(); });
+    const saveUrl = () => {
+      const v = this.panel.querySelector<HTMLInputElement>("input.askurl")?.value.trim() ?? "";
+      try { if (v) localStorage.setItem(ASK_URL_KEY, v); else localStorage.removeItem(ASK_URL_KEY); } catch { /* 忽略 */ }
+      this.showObjections = false;
+      this.flash(v ? "已儲存後端網址。" : "已清除後端網址。");
+      this.render();
+    };
+    const settings = `
+      <div class="settings">
+        <label>教練後端（Render 網址）</label>
+        <input class="askurl" type="url" placeholder="https://xxx.onrender.com" value="${esc(getAskUrl())}">
+        <div class="row">${this.btn("儲存網址", saveUrl)}</div>
+      </div>`;
     if (!list.length) {
-      return `${this.head("疑問紀錄", [close])}<p class="note muted">還沒有紀錄。每段講解下方都有「有疑問？」。</p>`;
+      return `${this.head("疑問紀錄", [close])}<p class="note muted">還沒有紀錄。每段講解下方都有「有疑問？問教練」。</p>${settings}`;
     }
     const copy = this.btn("複製全部", async () => {
       this.showObjections = false;
@@ -696,6 +767,7 @@ export class App {
       ${this.head(`疑問紀錄（${list.length}）`, [close])}
       <textarea class="export" rows="8" readonly>${esc(text)}</textarea>
       <div class="row">${copy}${clear}</div>
+      ${settings}
     `;
   }
 

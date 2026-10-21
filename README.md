@@ -30,9 +30,21 @@ npm run build      # 產出 dist/
 - [x] 離線產線第二段：Claude 產生講解＋著法驗證＋審稿（`npm run explain`，需 API key）
 - [x] 講解依引擎資料撰寫並通過 import-manual 驗證（著法來源、懲罰線、損失門檻），已取代手寫草稿
 - [ ] 以 API key 跑自動產線（`npm run explain`）做獨立審稿
-- [ ] Render 後端：即時問答（回答「疑問」）與快取
+- [x] Render 後端 `server/`：「問教練」即時問答（引擎事實 ＋ Claude，著法驗證、快取、限流）
+- [x] App 式固定版面：棋盤固定在上、說明區獨立捲動；平板橫放左右分欄
 
 產線說明見 [pipeline/README.md](pipeline/README.md)。
+
+## 問教練後端（Render）
+
+1. 在 [Render](https://render.com) 新增 **Blueprint**，指到這個 repo（會讀 `render.yaml`），或手動建 Web Service：
+   Build `npm ci && npm run build:server`，Start `npm start`，Node 22。
+2. 在 Render 的環境變數填 `ANTHROPIC_API_KEY`（不要 commit 進 repo）。
+3. 部署完成後拿到網址（例如 `https://cchess-tutor-ask.onrender.com`），在 App 裡按「疑問」→「教練後端」貼上並儲存。
+4. 之後每段講解下方的「有疑問？問教練」就會直接回答；回答裡的著法一樣經過驗證，
+   提到資料外著法的回答會標示「請當參考」。
+
+本機測試（不用 key）：`CCHESS_MOCK=1 npm run server:dev`，App 的後端網址填 `http://localhost:8787`。
 
 ## 目錄
 
