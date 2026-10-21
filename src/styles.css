@@ -68,6 +68,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .panel .head h2 { font-size: 1rem; font-weight: 400; margin: 0; opacity: 0.85; }
 .panel .head .tools { display: flex; gap: 6px; flex-shrink: 0; }
 .panel .move { font-size: 1.3rem; font-weight: 700; opacity: 1; }
+.score { display: inline-block; border: 2px solid var(--ink); border-radius: 6px; padding: 0 8px; font-weight: 700; font-size: 1rem; margin-left: 4px; vertical-align: middle; white-space: nowrap; background: var(--paper); color: var(--ink); opacity: 1; }
 .panel .note { margin: 6px 0; }
 .panel .detail { margin: 6px 0; padding: 6px 10px; background: var(--light); border-left: 3px solid var(--ink); font-size: 0.95rem; }
 .panel .principle { margin: 6px 0; font-weight: 700; }

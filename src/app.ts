@@ -52,6 +52,8 @@ interface PlaybackStep {
 interface Playback {
   title: string;
   before: Position;
+  /** 這條線的引擎分數（紅方觀點） */
+  score: number | null;
   steps: PlaybackStep[];
   index: number;
   summary?: string;
@@ -78,19 +80,36 @@ interface Objection {
   text: string;
 }
 
-/** 引擎對這一步的看法，一行小字；沒有資料就回傳 undefined */
-function engineLine(pa: PositionAnalysis | undefined, ev: MoveEval | undefined, isBook = false): string | undefined {
+/** 樹外走法：引擎排名一行小字；沒有資料就回傳 undefined */
+function engineLine(pa: PositionAnalysis | undefined, ev: MoveEval | undefined): string | undefined {
   if (!pa || !ev || ev.cpLoss === null) return undefined;
   const rank = pa.moves.indexOf(ev) + 1;
-  const best = pa.moves[0];
-  const loss = (ev.cpLoss / 100).toFixed(1);
-  if (rank === 1) return "引擎：這也是它的第一選擇。";
-  if (ev.cpLoss < 10) return `引擎：排第 ${rank}／${pa.moves.length}，跟最佳走法「${best?.zh ?? ""}」一樣好。`;
-  if (isBook && ev.cpLoss >= 100) {
-    // 引擎（尤其沒有 NNUE、深度有限時）對開局的品味不一定符合人類理論；書上的走法以實戰為準
-    return `引擎在這個深度不喜歡這步（比「${best?.zh ?? ""}」差 ${loss} 兵），但這是人類實戰常見的走法；引擎對開局的判斷不一定準。`;
+  if (rank === 1) return "引擎：這是它的第一選擇。";
+  return `引擎：排第 ${rank}／${pa.moves.length}，最佳是「${pa.moves[0]?.zh ?? ""}」。`;
+}
+
+/** 走完這步之後的引擎分數（紅方觀點，單位：兵）；沒有資料回傳 null */
+function scoreAfter(openingId: string, before: Position, move: Move): number | null {
+  const pa = analysisFor(openingId)?.positions[toFEN(before)];
+  const ev = pa?.moves.find((m) => m.iccs === moveToICCS(move));
+  if (!ev) return null;
+  let v: number;
+  if (ev.mate !== null) v = ev.mate > 0 ? 99 : -99;
+  else if (ev.cp !== null) v = ev.cp / 100;
+  else return null;
+  return before.turn === "r" ? v : -v;
+}
+
+/** 醒目的分數標籤：「0.3 紅優」「1.7 黑優」「0.0 均勢」 */
+function scoreChip(v: number | null): string {
+  if (v === null) return "";
+  let text: string;
+  if (Math.abs(v) >= 99) text = v > 0 ? "紅方有殺" : "黑方有殺";
+  else {
+    const abs = Math.abs(v);
+    text = `${abs.toFixed(1)} ${abs < 0.05 ? "均勢" : v > 0 ? "紅優" : "黑優"}`;
   }
-  return `引擎：排第 ${rank}／${pa.moves.length}，比最佳走法「${best?.zh ?? ""}」差 ${loss} 兵。`;
+  return `<span class="score" title="引擎分數，單位：兵">${text}</span>`;
 }
 
 const OBJECTIONS_KEY = "cchess.objections";
@@ -346,7 +365,7 @@ export class App {
     ];
     const pa = analysisFor(this.opening.id)?.positions[toFEN(before)];
     const ev = pa?.moves.find((m) => m.iccs === iccs);
-    const engine = engineLine(pa, ev, !!match);
+    const engine = match ? undefined : engineLine(pa, ev);
     const showPv: [string, () => void] | null = ev && ev.pvZh.length > 1
       ? ["看推演", () => this.startEnginePlayback(before, text, ev, back[1])]
       : null;
@@ -479,6 +498,7 @@ export class App {
     this.playback = {
       title: `推演：如果走 ${node.move}`,
       before,
+      score: scoreAfter(this.opening.id, before, first),
       steps,
       index: 0,
       summary: node.punishSummary,
@@ -510,6 +530,7 @@ export class App {
     this.playback = {
       title: `推演：如果走 ${firstZh}`,
       before,
+      score: scoreAfter(this.opening.id, before, parseChinese(before, firstZh)),
       steps,
       index: 0,
       summary,
@@ -691,8 +712,9 @@ export class App {
     const ask = f.before && f.moveText
       ? this.renderAsk({ before: f.before, move: f.moveText, explanation: [f.title, f.note, f.detail].filter(Boolean).join(" ") })
       : "";
+    const chip = f.kind !== "rule" && f.before && f.lastMove ? scoreChip(scoreAfter(this.opening.id, f.before, f.lastMove)) : "";
     return `
-      <div class="verdict ${f.kind}">${esc(f.title)}</div>
+      <div class="verdict ${f.kind}">${esc(f.title)} ${chip}</div>
       ${f.note ? `<p class="note">${esc(f.note)}</p>` : ""}
       ${f.engine ? `<p class="muted">${esc(f.engine)}</p>` : ""}
       ${this.detailBlock(f.detail)}
@@ -724,7 +746,7 @@ export class App {
       : "";
     const exit = this.tool("離開", () => { this.playback = null; this.askOpen = false; pb.onExit(); });
     return `
-      ${this.head(esc(pb.title), [exit])}
+      ${this.head(`${esc(pb.title)} ${scoreChip(pb.score)}`, [exit])}
       <ol class="steps">${list}</ol>
       ${tail}
       <div class="row">
@@ -755,7 +777,7 @@ export class App {
       const n = Math.ceil(this.idx / 2);
       const who = sideName(step.before.turn);
       body = `
-        ${this.head(`第 ${n} 回合 · ${who}　<span class="move">${esc(step.node.move)}</span>`, tools)}
+        ${this.head(`第 ${n} 回合 · ${who}　<span class="move">${esc(step.node.move)}</span> ${scoreChip(scoreAfter(this.opening.id, step.before, step.move))}`, tools)}
         <p class="note">${esc(step.node.note)}</p>
         ${this.detailBlock(step.node.detail)}
         ${step.node.principle ? `<p class="principle">${esc(step.node.principle)}</p>` : ""}
@@ -828,8 +850,10 @@ export class App {
       ? `<p class="note">對方 <strong>${esc(this.opponentNote.node.move)}</strong>：${esc(this.opponentNote.node.note)}</p>`
       : "";
     const n = Math.floor(this.idx / 2) + 1;
+    const last = this.line[this.idx - 1];
+    const chip = last ? scoreChip(scoreAfter(this.opening.id, last.before, last.move)) : "";
     return `
-      ${this.head(`第 ${n} 回合 · ${sideName(this.learnerSide)}`, tools)}
+      ${this.head(`第 ${n} 回合 · ${sideName(this.learnerSide)} ${chip}`, tools)}
       ${opp}
       <div class="move">你走哪步？</div>
       <p class="muted">${score}</p>
@@ -857,8 +881,10 @@ export class App {
     const list = this.history
       .map((h, i) => (i % 2 === 0 ? `${i / 2 + 1}. ${h.text}` : h.text))
       .join("　");
+    const lastH = this.history.at(-1);
+    const chip = lastH ? scoreChip(scoreAfter(this.opening.id, lastH.before, lastH.move)) : "";
     return `
-      ${this.head(esc(status), tools)}
+      ${this.head(`${esc(status)} ${chip}`, tools)}
       <div class="movelist">${esc(list)}</div>
     `;
   }
