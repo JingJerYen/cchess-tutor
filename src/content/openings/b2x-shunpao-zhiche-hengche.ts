@@ -53,14 +53,8 @@ export const opening: Opening = {
                                           note: "黑方跳出另一個馬。",
                                           children: [
                                             {
-                                              move: "車九平八",
-                                              note: "紅方出動另一個車。",
-                                              children: [
-                                                {
-                                                  move: "車1平2",
-                                                  note: "黑方也出動另一個車，雙方佈置完成。",
-                                                },
-                                              ],
+                                              move: "兵七進一",
+                                              note: "挺七兵活馬，雙方基本佈置完成。",
                                             },
                                           ],
                                         },
