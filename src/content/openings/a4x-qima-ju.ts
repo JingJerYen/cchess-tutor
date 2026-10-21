@@ -7,7 +7,7 @@ export const opening: Opening = {
   title: "起馬局",
   summary:
     "紅方第一步先跳馬，不急著擺炮，保留走中炮或飛相的彈性。黑方常用挺 7 卒回應，限制這個馬。" +
-    "本課走紅方之後轉中炮的簡單線。",
+    "本課走紅方用左炮轉中炮、雙車快速出動的線。",
   learnerSide: "r",
   verified: false,
   source: "手寫草稿，依一般開局常識整理；待離線產線驗證後取代。",
@@ -33,30 +33,24 @@ export const opening: Opening = {
                       note: "紅方跳出左馬，保護中兵並替左車讓路。",
                       children: [
                         {
-                          move: "車9平8",
-                          note: "黑車平到 8 路準備出動。",
+                          move: "馬2進3",
+                          note: "黑方跳出另一個馬，形成屏風馬。",
                           children: [
                             {
-                              move: "車一平二",
-                              note: "紅車出到二路對峙。",
+                              move: "車九平八",
+                              note: "紅方左車出到八路。",
                               children: [
                                 {
-                                  move: "馬2進3",
-                                  note: "黑方跳出另一個馬，形成屏風馬。",
+                                  move: "車1平2",
+                                  note: "黑車平到 2 路和紅車對峙。",
                                   children: [
                                     {
-                                      move: "兵七進一",
-                                      note: "挺七兵，替七路馬打開前進路線。",
+                                      move: "車八進四",
+                                      note: "巡河車：紅車進到河口。",
                                       children: [
                                         {
-                                          move: "車1平2",
-                                          note: "黑方出動另一個車。",
-                                          children: [
-                                            {
-                                              move: "車九平八",
-                                              note: "紅方出動另一個車，雙方佈置完成。",
-                                            },
-                                          ],
+                                          move: "士6進5",
+                                          note: "黑方補士，雙方基本佈置完成。",
                                         },
                                       ],
                                     },
@@ -65,6 +59,11 @@ export const opening: Opening = {
                               ],
                             },
                           ],
+                        },
+                        {
+                          move: "炮2平3",
+                          kind: "alt",
+                          note: "炮平到 3 路，準備對頂紅方的七兵，也是常見走法。",
                         },
                       ],
                     },
