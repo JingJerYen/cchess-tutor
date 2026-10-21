@@ -26,6 +26,7 @@ import { walk } from "../src/content/tree";
 import type { Opening, OpeningNode } from "../src/content/types";
 import type { AnalysisFile, PositionAnalysis } from "../src/content/analysis-types";
 import type { ExplanationsFile, GeneratedMistake, GeneratedNode } from "../src/content/explanations-types";
+import { validateMoves } from "./validate";
 
 const args = process.argv.slice(2);
 const arg = (n: string) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 1] : undefined; };
@@ -103,18 +104,6 @@ function factsForMove(pos: Position, zh: string): string {
   return featuresToText(moveFeatures(pos, m));
 }
 
-/** 文字裡出現的所有中文記譜記號 */
-const MOVE_RE = /[前中後]?[車馬炮砲相象仕士兵卒帥將][一二三四五六七八九1-9]?[進退平][一二三四五六七八九1-9]/g;
-function movesMentioned(text: string): string[] {
-  return [...new Set(text.match(MOVE_RE) ?? [])];
-}
-
-/** 檢查文字裡提到的著法是否都在允許清單裡；回傳違規項目 */
-function validateMoves(texts: string[], allowed: Set<string>): string[] {
-  const bad: string[] = [];
-  for (const t of texts) for (const m of movesMentioned(t)) if (!allowed.has(m)) bad.push(m);
-  return [...new Set(bad)];
-}
 
 // ---------- LLM 呼叫 ----------
 
