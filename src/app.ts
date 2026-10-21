@@ -430,14 +430,27 @@ export class App {
     return `<button data-a="${id}" class="${cls}">${esc(label)}</button>`;
   }
 
+  /** 面板標題列：左邊標題，右邊小工具按鈕 */
+  private head(title: string, tools: string[] = []): string {
+    return `<div class="head"><h2>${title}</h2><div class="tools">${tools.join("")}</div></div>`;
+  }
+
+  private tool(label: string, fn: () => void, active = false): string {
+    return this.btn(label, fn, `tool${active ? " primary" : ""}`);
+  }
+
+  private flipTool(): string {
+    return this.tool("翻轉", () => { this.flipped = !this.flipped; this.render(); });
+  }
+
   private render(): void {
     this.actions.clear();
-    const draft = this.opening.verified ? "" : `<span class="badge">草稿</span>`;
     const n = this.objections.length;
-    this.header.innerHTML = `<h1>${esc(this.opening.title)}</h1><div>${draft} ${this.btn(
+    const draft = this.opening.verified ? "" : `<span class="badge">草稿</span>`;
+    this.header.innerHTML = `<h1>${esc(this.opening.title)}</h1><div>${draft}${this.tool(
       n ? `疑問 ${n}` : "疑問",
       () => { this.showObjections = !this.showObjections; this.render(); },
-      "small" + (this.showObjections ? " primary" : ""),
+      this.showObjections,
     )}</div>`;
 
     let boardPos = this.pos;
@@ -484,10 +497,10 @@ export class App {
 
   // ---------- 質疑 ----------
 
-  /** 「我有疑問」按鈕，展開後是輸入框。ctx 是這段講解對應的局面與著法。 */
+  /** 「有疑問？」小按鈕，展開後是輸入框。ctx 是這段講解對應的局面與著法。 */
   private renderAsk(ctx: { before: Position; move: string; explanation: string }): string {
     if (!this.askOpen) {
-      return `<div class="row">${this.btn("我有疑問／看不懂", () => { this.askOpen = true; this.render(); }, "ghost")}</div>`;
+      return `<div class="askline">${this.btn("有疑問？", () => { this.askOpen = true; this.render(); }, "link")}</div>`;
     }
     const submit = () => {
       const ta = this.panel.querySelector<HTMLTextAreaElement>("textarea");
@@ -507,12 +520,11 @@ export class App {
     };
     return `
       <div class="ask">
-        <textarea rows="3" placeholder="哪裡不同意、哪裡看不懂？直接寫。"></textarea>
+        <textarea rows="2" placeholder="哪裡不同意、哪裡看不懂？"></textarea>
         <div class="row">
           ${this.btn("記下來", submit, "primary")}
           ${this.btn("取消", () => { this.askOpen = false; this.render(); })}
         </div>
-        <p class="muted">目前先記錄在這支裝置裡；按標題旁的「疑問」可以整批複製給我。接上後端之後，這裡會直接回答你。</p>
       </div>
     `;
   }
@@ -520,6 +532,10 @@ export class App {
   private renderObjections(): string {
     const list = this.objections;
     const text = formatObjections(list);
+    const close = this.tool("關閉", () => { this.showObjections = false; this.render(); });
+    if (!list.length) {
+      return `${this.head("疑問紀錄", [close])}<p class="note muted">還沒有紀錄。每段講解下方都有「有疑問？」。</p>`;
+    }
     const copy = this.btn("複製全部", async () => {
       this.showObjections = false;
       try {
@@ -536,34 +552,30 @@ export class App {
       saveObjections([]);
       this.render();
     });
-    const close = this.btn("關閉", () => { this.showObjections = false; this.render(); });
-    if (!list.length) {
-      return `<h2>疑問紀錄</h2><p class="note">還沒有紀錄。任何講解旁邊都有「我有疑問／看不懂」。</p><div class="row">${close}</div>`;
-    }
     return `
-      <h2>疑問紀錄（${list.length}）</h2>
+      ${this.head(`疑問紀錄（${list.length}）`, [close])}
       <textarea class="export" rows="8" readonly>${esc(text)}</textarea>
-      <div class="row">${copy}${clear}${close}</div>
+      <div class="row">${copy}${clear}</div>
     `;
   }
 
-  private flipButton(): string {
-    return this.btn("翻轉", () => { this.flipped = !this.flipped; this.render(); });
+  // ---------- 各面板 ----------
+
+  private detailBlock(detail: string | undefined): string {
+    if (!detail) return "";
+    return this.showDetail
+      ? `<div class="detail">${esc(detail)}</div>`
+      : `<div class="askline">${this.btn("詳細說明…", () => { this.showDetail = true; this.render(); }, "link")}</div>`;
   }
 
   private renderFeedback(f: Feedback): string {
-    const detail = f.detail
-      ? this.showDetail
-        ? `<div class="detail">${esc(f.detail)}</div>`
-        : this.btn("詳細說明", () => { this.showDetail = true; this.render(); })
-      : "";
     const ask = f.before && f.moveText
       ? this.renderAsk({ before: f.before, move: f.moveText, explanation: [f.title, f.note, f.detail].filter(Boolean).join(" ") })
       : "";
     return `
       <div class="verdict ${f.kind}">${esc(f.title)}</div>
       ${f.note ? `<p class="note">${esc(f.note)}</p>` : ""}
-      ${detail}
+      ${this.detailBlock(f.detail)}
       ${f.principle ? `<p class="principle">${esc(f.principle)}</p>` : ""}
       <div class="row">${f.actions.map(([label, fn], i) => this.btn(label, fn, i === 0 ? "primary" : "")).join("")}</div>
       ${ask}
@@ -575,12 +587,12 @@ export class App {
     const list = pb.steps
       .map((s, i) => {
         const cls = i === pb.index ? "current" : i > pb.index ? "future" : "";
-        const note = i <= pb.index ? ` — ${esc(s.note)}` : "";
-        return `<li class="${cls}">${i + 1}/${pb.steps.length}　${esc(s.label)}${note}</li>`;
+        const note = i <= pb.index ? `<br><span class="muted">${esc(s.note)}</span>` : "";
+        return `<li class="${cls}">${esc(s.label)}${note}</li>`;
       })
       .join("");
     const tail = atEnd
-      ? `${pb.summary ? `<p class="note"><strong>結論：</strong>${esc(pb.summary)}</p>` : ""}
+      ? `${pb.summary ? `<p class="note">${esc(pb.summary)}</p>` : ""}
          ${pb.principle ? `<p class="principle">${esc(pb.principle)}</p>` : ""}`
       : "";
     const ask = atEnd
@@ -590,136 +602,143 @@ export class App {
           explanation: [...pb.steps.map((s) => s.note), pb.summary ?? ""].join(" "),
         })
       : "";
+    const exit = this.tool("離開", () => { this.playback = null; this.askOpen = false; pb.onExit(); });
     return `
-      <h2>${esc(pb.title)}</h2>
-      <ul class="steps">${list}</ul>
+      ${this.head(esc(pb.title), [exit])}
+      <ol class="steps">${list}</ol>
       ${tail}
       <div class="row">
         ${this.btn("上一步", () => { pb.index = Math.max(0, pb.index - 1); this.render(); })}
-        ${this.btn("下一步", () => { pb.index = Math.min(pb.steps.length - 1, pb.index + 1); this.render(); }, atEnd ? "" : "primary")}
-        ${this.btn("離開", () => { this.playback = null; this.askOpen = false; pb.onExit(); }, atEnd ? "primary" : "")}
+        ${atEnd
+          ? this.btn("回到課程", () => { this.playback = null; this.askOpen = false; pb.onExit(); }, "primary")
+          : this.btn("下一步", () => { pb.index = Math.min(pb.steps.length - 1, pb.index + 1); this.render(); }, "primary")}
       </div>
       ${ask}
     `;
   }
 
+  private gotoLearn(idx: number): void {
+    this.idx = Math.max(0, Math.min(this.line.length, idx));
+    this.showDetail = false;
+    this.askOpen = false;
+    this.syncToLine();
+    this.render();
+  }
+
   private renderLearn(): string {
     const step = this.line[this.idx - 1];
+    const tools = [this.tool("開頭", () => this.gotoLearn(0)), this.flipTool()];
     let body: string;
     if (!step) {
-      body = `<p class="note">${esc(this.opening.summary)}</p>
-        <p class="muted">也可以直接在棋盤上走走看。</p>`;
+      body = `${this.head(esc(this.opening.title), tools)}<p class="note">${esc(this.opening.summary)}</p>`;
     } else {
       const n = Math.ceil(this.idx / 2);
       const who = sideName(step.before.turn);
-      const detail = step.node.detail
-        ? this.showDetail
-          ? `<div class="detail">${esc(step.node.detail)}</div>`
-          : this.btn("詳細說明", () => { this.showDetail = true; this.render(); })
-        : "";
       body = `
-        <h2>第 ${n} 回合 · ${who}</h2>
-        <div class="move">${esc(step.node.move)}</div>
+        ${this.head(`第 ${n} 回合 · ${who}　<span class="move">${esc(step.node.move)}</span>`, tools)}
         <p class="note">${esc(step.node.note)}</p>
-        ${detail}
+        ${this.detailBlock(step.node.detail)}
         ${step.node.principle ? `<p class="principle">${esc(step.node.principle)}</p>` : ""}
       `;
       if (this.idx === this.line.length && this.opening.conclusion) {
-        body += `<p class="note"><strong>小結：</strong>${esc(this.opening.conclusion)}</p>`;
+        body += `<p class="note">${esc(this.opening.conclusion)}</p>`;
       }
-      body += this.renderAsk({
-        before: step.before,
-        move: step.node.move,
-        explanation: [step.node.note, step.node.detail].filter(Boolean).join(" "),
-      });
     }
 
-    // 下一步的其他選擇（變著與常見錯誤）
+    // 下一步的其他選擇（變著與常見錯誤），做成一排小標籤
     const next = this.line[this.idx];
     const others = this.childrenAt(this.idx).filter((c) => (c.kind ?? "main") !== "main");
     let alts = "";
     if (next && others.length) {
-      const who = sideName(next.before.turn);
-      alts = `<p class="muted">接下來${who}走「${esc(next.node.move)}」。其他走法：</p><ul class="alts">` +
-        others.map((c) => {
-          const tag = c.kind === "mistake" ? "✗ 常見錯誤" : "○ 也可以";
-          const fn = c.kind === "mistake"
-            ? () => this.startPlayback(c, this.pos, () => { this.syncToLine(); this.render(); })
-            : () => { this.feedback = {
-                kind: "so", title: `${c.move}：這步也可以`, note: c.note, detail: c.detail,
+      const chips = others.map((c) => {
+        const fn = c.kind === "mistake"
+          ? () => this.startPlayback(c, this.pos, () => { this.syncToLine(); this.render(); })
+          : () => {
+              const m = parseChinese(this.pos, c.move);
+              this.feedback = {
+                kind: "so", title: `${c.move}：也可以`, note: c.note, detail: c.detail,
                 actions: [["回到課程", () => { this.feedback = null; this.render(); }]],
-                pos: makeMove(this.pos, parseChinese(this.pos, c.move)),
-                lastMove: parseChinese(this.pos, c.move),
-              }; this.render(); };
-          return `<li>${this.btn(`${tag}　${c.move}`, fn)}</li>`;
-        }).join("") + `</ul>`;
+                pos: makeMove(this.pos, m), lastMove: m, before: this.pos, moveText: c.move,
+              };
+              this.render();
+            };
+        return this.btn(`${c.kind === "mistake" ? "✗ " : ""}${c.move}`, fn, "chip");
+      });
+      alts = `<div class="chips"><span class="muted">${esc(sideName(next.before.turn))}其他走法</span>${chips.join("")}</div>`;
     }
+
+    const ask = step
+      ? this.renderAsk({
+          before: step.before,
+          move: step.node.move,
+          explanation: [step.node.note, step.node.detail].filter(Boolean).join(" "),
+        })
+      : "";
 
     return `
       ${body}
       ${alts}
       <div class="row">
-        ${this.btn("開頭", () => { this.idx = 0; this.showDetail = false; this.askOpen = false; this.syncToLine(); this.render(); })}
-        ${this.btn("上一步", () => { this.idx = Math.max(0, this.idx - 1); this.showDetail = false; this.askOpen = false; this.syncToLine(); this.render(); })}
-        ${this.btn("下一步", () => { this.idx = Math.min(this.line.length, this.idx + 1); this.showDetail = false; this.askOpen = false; this.syncToLine(); this.render(); }, "primary")}
-        ${this.flipButton()}
+        ${this.btn("上一步", () => this.gotoLearn(this.idx - 1))}
+        ${this.btn(this.idx === 0 ? "開始" : "下一步", () => this.gotoLearn(this.idx + 1), "primary")}
       </div>
+      ${ask}
     `;
   }
 
   private renderQuiz(): string {
-    const score = `<p class="muted">答對 ${this.quizCorrect} / ${this.quizTotal}</p>`;
-    const sideBtn = this.btn(`我執${this.learnerSide === "r" ? "紅" : "黑"}（切換）`, () => {
-      this.learnerSide = this.learnerSide === "r" ? "b" : "r";
-      this.flipped = this.learnerSide === "b";
-      this.quizStart();
-      this.render();
-    });
-    const restart = this.btn("重新開始", () => { this.quizStart(); this.render(); });
+    const tools = [
+      this.tool(this.learnerSide === "r" ? "換執黑" : "換執紅", () => {
+        this.learnerSide = this.learnerSide === "r" ? "b" : "r";
+        this.flipped = this.learnerSide === "b";
+        this.quizStart();
+        this.render();
+      }),
+      this.tool("重來", () => { this.quizStart(); this.render(); }),
+      this.flipTool(),
+    ];
+    const score = `答對 ${this.quizCorrect}/${this.quizTotal}`;
     if (this.quizDone) {
       return `
-        <h2>測驗結束</h2>
-        ${score}
+        ${this.head(`測驗結束 · ${score}`, tools)}
         ${this.opening.conclusion ? `<p class="note">${esc(this.opening.conclusion)}</p>` : ""}
-        <div class="row">${restart}${sideBtn}${this.flipButton()}</div>
       `;
     }
     const opp = this.opponentNote
-      ? `<p class="note">對方走了「${esc(this.opponentNote.node.move)}」：${esc(this.opponentNote.node.note)}</p>`
+      ? `<p class="note">對方 <strong>${esc(this.opponentNote.node.move)}</strong>：${esc(this.opponentNote.node.note)}</p>`
       : "";
     const n = Math.floor(this.idx / 2) + 1;
     return `
-      <h2>第 ${n} 回合 · 輪到你（${sideName(this.learnerSide)}）</h2>
+      ${this.head(`第 ${n} 回合 · ${sideName(this.learnerSide)}`, tools)}
       ${opp}
       <div class="move">你走哪步？</div>
-      ${score}
-      <div class="row">${restart}${sideBtn}${this.flipButton()}</div>
+      <p class="muted">${score}</p>
     `;
   }
 
   private renderFree(): string {
     const result = gameResult(this.pos);
     let status: string;
-    if (result === "checkmate") status = `將死！${sideName(this.pos.turn === "r" ? "b" : "r")}勝。`;
-    else if (result === "stalemate") status = `困斃！${sideName(this.pos.turn)}無子可動，判負。`;
-    else if (inCheck(this.pos, this.pos.turn)) status = `將軍！輪到${sideName(this.pos.turn)}應將。`;
-    else status = `輪到${sideName(this.pos.turn)}。`;
+    if (result === "checkmate") status = `將死，${sideName(this.pos.turn === "r" ? "b" : "r")}勝`;
+    else if (result === "stalemate") status = `困斃，${sideName(this.pos.turn)}判負`;
+    else if (inCheck(this.pos, this.pos.turn)) status = `將軍！${sideName(this.pos.turn)}應將`;
+    else status = `輪到${sideName(this.pos.turn)}`;
 
+    const tools = [
+      this.tool("悔棋", () => {
+        const h = this.history.pop();
+        if (h) { this.pos = h.before; this.lastMove = this.history.at(-1)?.move ?? null; }
+        this.selected = null;
+        this.render();
+      }),
+      this.tool("重來", () => { this.history = []; this.pos = startPosition(); this.lastMove = null; this.selected = null; this.render(); }),
+      this.flipTool(),
+    ];
     const list = this.history
       .map((h, i) => (i % 2 === 0 ? `${i / 2 + 1}. ${h.text}` : h.text))
       .join("　");
     return `
-      <p class="note">${esc(status)}</p>
-      <div class="row">
-        ${this.btn("悔棋", () => {
-          const h = this.history.pop();
-          if (h) { this.pos = h.before; this.lastMove = this.history.at(-1)?.move ?? null; }
-          this.selected = null;
-          this.render();
-        })}
-        ${this.btn("重新開始", () => { this.history = []; this.pos = startPosition(); this.lastMove = null; this.selected = null; this.render(); })}
-        ${this.flipButton()}
-      </div>
+      ${this.head(esc(status), tools)}
       <div class="movelist">${esc(list)}</div>
     `;
   }

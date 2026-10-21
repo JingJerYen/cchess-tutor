@@ -5,42 +5,42 @@
   --gray: #d9d9d9;
   --light: #f2f2f2;
   font-family: "Noto Serif CJK TC", "Noto Serif TC", "PingFang TC", "Microsoft JhengHei", serif;
-  font-size: 18px;
-  line-height: 1.6;
+  font-size: 17px;
+  line-height: 1.55;
   color: var(--ink);
   background: var(--paper);
 }
 * { box-sizing: border-box; transition: none !important; animation: none !important; }
 html, body { margin: 0; padding: 0; background: var(--paper); }
-body { padding: 8px 12px 24px; max-width: 760px; margin: 0 auto; }
+body { padding: 6px 12px 24px; max-width: 760px; margin: 0 auto; }
 
-header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; }
-header h1 { font-size: 1.2rem; margin: 4px 0; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+header h1 { font-size: 1.15rem; margin: 4px 0; font-weight: 700; }
 header > div { display: flex; align-items: center; gap: 8px; }
-.badge { display: inline-block; border: 2px solid var(--ink); padding: 0 8px; font-size: 0.8rem; border-radius: 4px; }
+.badge { font-size: 0.75rem; border: 1px solid var(--ink); border-radius: 4px; padding: 0 6px; opacity: 0.7; }
 
-nav.tabs { display: flex; gap: 6px; margin: 8px 0; }
-nav.tabs button { flex: 1; }
+nav.tabs { display: flex; gap: 0; margin: 6px 0 8px; border: 1.5px solid var(--ink); border-radius: 8px; overflow: hidden; }
+nav.tabs button { flex: 1; border: 0; border-radius: 0; min-height: 40px; }
+nav.tabs button + button { border-left: 1.5px solid var(--ink); }
 
+/* 按鈕三級：primary 實心、一般細框、tool/link 小字 */
 button {
   font: inherit;
-  min-height: 48px;
-  padding: 8px 14px;
-  border: 2px solid var(--ink);
-  border-radius: 6px;
+  min-height: 46px;
+  padding: 6px 14px;
+  border: 1.5px solid var(--ink);
+  border-radius: 8px;
   background: var(--paper);
   color: var(--ink);
   cursor: pointer;
 }
 button.primary, button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
-button.small { min-height: 36px; padding: 2px 10px; font-size: 0.9rem; }
-button.ghost { border-style: dashed; font-size: 0.95rem; }
-textarea { font: inherit; width: 100%; border: 2px solid var(--ink); border-radius: 6px; padding: 8px; background: var(--paper); color: var(--ink); }
-textarea.export { font-size: 0.85rem; }
-.ask { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--gray); }
+button.tool { min-height: 32px; padding: 0 10px; font-size: 0.85rem; border-radius: 6px; }
+button.link { min-height: 32px; padding: 0 4px; border: 0; font-size: 0.9rem; text-decoration: underline; opacity: 0.75; }
+button.chip { min-height: 34px; padding: 0 10px; font-size: 0.95rem; border-radius: 17px; }
 button:disabled { opacity: 0.4; cursor: default; }
-.row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
-.row button { flex: 1 1 auto; }
+.row { display: flex; gap: 8px; margin: 10px 0 0; }
+.row button { flex: 1 1 0; }
 
 /* 棋盤 */
 .board { width: 100%; height: auto; display: block; max-height: 62vh; margin: 0 auto; }
@@ -63,24 +63,28 @@ button:disabled { opacity: 0.4; cursor: default; }
 .board .touch rect { fill: transparent; cursor: pointer; }
 
 /* 說明面板 */
-.panel { border: 2px solid var(--ink); border-radius: 8px; padding: 12px 14px; margin-top: 10px; min-height: 120px; }
-.panel h2 { font-size: 1.1rem; margin: 0 0 6px; }
-.panel .move { font-size: 1.4rem; font-weight: 700; }
+.panel { border-top: 1.5px solid var(--ink); padding: 8px 0 0; margin-top: 6px; min-height: 100px; }
+.panel .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.panel .head h2 { font-size: 1rem; font-weight: 400; margin: 0; opacity: 0.85; }
+.panel .head .tools { display: flex; gap: 6px; flex-shrink: 0; }
+.panel .move { font-size: 1.3rem; font-weight: 700; opacity: 1; }
 .panel .note { margin: 6px 0; }
-.panel .detail { margin: 8px 0; padding: 8px 12px; background: var(--light); border-left: 4px solid var(--ink); }
-.panel .principle { margin: 8px 0; font-weight: 700; }
-.panel .principle::before { content: "心法："; }
-.panel .muted { opacity: 0.7; font-size: 0.95rem; }
-.panel .verdict { font-size: 1.2rem; font-weight: 700; margin-bottom: 4px; }
+.panel .detail { margin: 6px 0; padding: 6px 10px; background: var(--light); border-left: 3px solid var(--ink); font-size: 0.95rem; }
+.panel .principle { margin: 6px 0; font-weight: 700; }
+.panel .principle::before { content: "心法："; font-weight: 400; opacity: 0.7; }
+.panel .muted { opacity: 0.65; font-size: 0.92rem; }
+.panel .verdict { font-size: 1.15rem; font-weight: 700; margin: 2px 0 4px; }
 .panel .verdict.bad::before { content: "✗ "; }
 .panel .verdict.ok::before { content: "✓ "; }
 .panel .verdict.so::before { content: "○ "; }
 .panel .verdict.rule::before { content: "！"; }
-.panel ul.alts { list-style: none; padding: 0; margin: 8px 0 0; }
-.panel ul.alts li { margin: 6px 0; }
-.panel ul.alts button { width: 100%; text-align: left; min-height: 44px; }
-.panel .steps { margin: 8px 0; padding-left: 0; list-style: none; }
-.panel .steps li { padding: 4px 0; border-bottom: 1px solid var(--gray); }
-.panel .steps li.current { font-weight: 700; background: var(--light); }
-.panel .steps li.future { opacity: 0.45; }
-.movelist { margin-top: 10px; font-size: 0.95rem; word-break: break-all; }
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0 0; }
+.panel .steps { margin: 6px 0; padding-left: 1.4em; }
+.panel .steps li { padding: 3px 0; }
+.panel .steps li.current { font-weight: 700; }
+.panel .steps li.future { opacity: 0.4; }
+.askline { display: flex; justify-content: flex-end; margin-top: 4px; }
+.ask { margin-top: 10px; }
+textarea { font: inherit; width: 100%; border: 1.5px solid var(--ink); border-radius: 8px; padding: 8px; background: var(--paper); color: var(--ink); }
+textarea.export { font-size: 0.85rem; }
+.movelist { margin-top: 8px; font-size: 0.95rem; word-break: break-all; }
