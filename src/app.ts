@@ -4,7 +4,7 @@
  * 「如果我走這步呢？」在學習與測驗模式都可用：
  * 在棋盤上走任何一步，App 會依照規則引擎與開局樹回答。
  */
-import { makeMove, startPosition } from "./engine/board";
+import { makeMove, startPosition, toFEN } from "./engine/board";
 import { explainIllegal, gameResult, inCheck, legalMovesFrom } from "./engine/moves";
 import { moveToChinese, parseChinese } from "./engine/notation";
 import { type Move, type Position, type Side, type Square, moveToICCS, sideOf } from "./engine/types";
@@ -32,6 +32,9 @@ interface Feedback {
   /** 回饋時棋盤要顯示的局面 */
   pos: Position;
   lastMove: Move | null;
+  /** 質疑用：著法之前的局面與著法文字 */
+  before?: Position;
+  moveText?: string;
 }
 
 interface PlaybackStep {
@@ -43,6 +46,7 @@ interface PlaybackStep {
 
 interface Playback {
   title: string;
+  before: Position;
   steps: PlaybackStep[];
   index: number;
   summary?: string;
@@ -56,6 +60,47 @@ function esc(s: string): string {
 
 function sideName(s: Side): string {
   return s === "r" ? "紅方" : "黑方";
+}
+
+/** 使用者對某段講解的質疑 */
+interface Objection {
+  time: string;
+  opening: string;
+  /** 講解對應的局面（著法之前） */
+  fen: string;
+  move: string;
+  explanation: string;
+  text: string;
+}
+
+const OBJECTIONS_KEY = "cchess.objections";
+
+function loadObjections(): Objection[] {
+  try {
+    const raw = localStorage.getItem(OBJECTIONS_KEY);
+    return raw ? (JSON.parse(raw) as Objection[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveObjections(list: Objection[]): void {
+  try {
+    localStorage.setItem(OBJECTIONS_KEY, JSON.stringify(list));
+  } catch {
+    /* 無法存取本機儲存時就只留在記憶體 */
+  }
+}
+
+/** 匯出成可以直接貼到對話裡的文字 */
+function formatObjections(list: Objection[]): string {
+  return list
+    .map(
+      (o, i) =>
+        `${i + 1}. [${o.time.slice(0, 16).replace("T", " ")}] ${o.opening}\n` +
+        `   局面：${o.fen}\n   著法：${o.move}\n   講解：${o.explanation}\n   我的疑問：${o.text}`,
+    )
+    .join("\n\n");
 }
 
 export class App {
@@ -89,6 +134,11 @@ export class App {
   /** 自由走 */
   private history: { before: Position; move: Move; text: string }[] = [];
 
+  /** 質疑／看不懂的紀錄（存在瀏覽器本機，可複製貼出） */
+  private objections: Objection[] = loadObjections();
+  private askOpen = false;
+  private showObjections = false;
+
   constructor(root: HTMLElement) {
     const opening = openings[0];
     if (!opening) throw new Error("沒有任何開局內容");
@@ -100,9 +150,7 @@ export class App {
       <header></header>
       <nav class="tabs"></nav>
       <div class="board-wrap"></div>
-      <p class="legend">雙圈白底＝紅方，單圈灰底＝黑方。點棋子再點目的地。</p>
       <section class="panel"></section>
-      <footer>cchess-tutor · 內容標示「草稿」者尚未經過引擎與審稿驗證。</footer>
     `;
     this.header = root.querySelector("header")!;
     this.panel = root.querySelector(".panel")!;
@@ -139,6 +187,8 @@ export class App {
     this.feedback = null;
     this.playback = null;
     this.showDetail = false;
+    this.askOpen = false;
+    this.showObjections = false;
     if (mode === "learn") {
       this.idx = 0;
       this.syncToLine();
@@ -197,6 +247,8 @@ export class App {
           actions: [["知道了", () => { this.feedback = null; this.render(); }]],
           pos: this.pos,
           lastMove: this.lastMove,
+          before: this.pos,
+          moveText: moveToICCS(move),
         };
       } else {
         this.selected = null;
@@ -258,6 +310,8 @@ export class App {
         actions: mainNode ? [back, followMain] : [back],
         pos: after,
         lastMove: move,
+        before,
+        moveText: text,
       };
     }
     const kind = match.kind ?? "main";
@@ -272,6 +326,8 @@ export class App {
         actions: [["繼續", () => { this.feedback = null; this.advanceAlongMain(); }]],
         pos: after,
         lastMove: move,
+        before,
+        moveText: text,
       };
     }
     if (kind === "alt") {
@@ -284,6 +340,8 @@ export class App {
         actions: mainNode ? [back, followMain] : [back],
         pos: after,
         lastMove: move,
+        before,
+        moveText: text,
       };
     }
     if (this.mode === "quiz") this.quizTotal++;
@@ -298,6 +356,8 @@ export class App {
       ],
       pos: after,
       lastMove: move,
+      before,
+      moveText: text,
     };
   }
 
@@ -334,6 +394,7 @@ export class App {
     }
     this.playback = {
       title: `推演：如果走 ${node.move}`,
+      before,
       steps,
       index: 0,
       summary: node.punishSummary,
@@ -372,7 +433,12 @@ export class App {
   private render(): void {
     this.actions.clear();
     const draft = this.opening.verified ? "" : `<span class="badge">草稿</span>`;
-    this.header.innerHTML = `<h1>${esc(this.opening.title)} <span class="muted">${esc(this.opening.ecco)}</span></h1>${draft}`;
+    const n = this.objections.length;
+    this.header.innerHTML = `<h1>${esc(this.opening.title)}</h1><div>${draft} ${this.btn(
+      n ? `疑問 ${n}` : "疑問",
+      () => { this.showObjections = !this.showObjections; this.render(); },
+      "small" + (this.showObjections ? " primary" : ""),
+    )}</div>`;
 
     let boardPos = this.pos;
     let last = this.lastMove;
@@ -399,20 +465,90 @@ export class App {
     });
 
     let html: string;
-    if (this.playback) html = this.renderPlayback(this.playback);
+    if (this.showObjections) html = this.renderObjections();
+    else if (this.playback) html = this.renderPlayback(this.playback);
     else if (this.feedback) html = this.renderFeedback(this.feedback);
     else if (this.mode === "learn") html = this.renderLearn();
     else if (this.mode === "quiz") html = this.renderQuiz();
     else html = this.renderFree();
 
     this.panel.innerHTML = html;
-    this.panel.querySelectorAll<HTMLButtonElement>("button[data-a]").forEach((b) => {
-      b.onclick = () => this.actions.get(b.dataset.a!)?.();
+    for (const host of [this.header, this.panel]) {
+      host.querySelectorAll<HTMLButtonElement>("button[data-a]").forEach((b) => {
+        b.onclick = () => this.actions.get(b.dataset.a!)?.();
+      });
+    }
+    const ta = this.panel.querySelector<HTMLTextAreaElement>("textarea:not([readonly])");
+    if (ta) ta.focus();
+  }
+
+  // ---------- 質疑 ----------
+
+  /** 「我有疑問」按鈕，展開後是輸入框。ctx 是這段講解對應的局面與著法。 */
+  private renderAsk(ctx: { before: Position; move: string; explanation: string }): string {
+    if (!this.askOpen) {
+      return `<div class="row">${this.btn("我有疑問／看不懂", () => { this.askOpen = true; this.render(); }, "ghost")}</div>`;
+    }
+    const submit = () => {
+      const ta = this.panel.querySelector<HTMLTextAreaElement>("textarea");
+      const text = ta?.value.trim() ?? "";
+      if (!text) return;
+      this.objections.push({
+        time: new Date().toISOString(),
+        opening: this.opening.title,
+        fen: toFEN(ctx.before),
+        move: ctx.move,
+        explanation: ctx.explanation,
+        text,
+      });
+      saveObjections(this.objections);
+      this.askOpen = false;
+      this.render();
+    };
+    return `
+      <div class="ask">
+        <textarea rows="3" placeholder="哪裡不同意、哪裡看不懂？直接寫。"></textarea>
+        <div class="row">
+          ${this.btn("記下來", submit, "primary")}
+          ${this.btn("取消", () => { this.askOpen = false; this.render(); })}
+        </div>
+        <p class="muted">目前先記錄在這支裝置裡；按標題旁的「疑問」可以整批複製給我。接上後端之後，這裡會直接回答你。</p>
+      </div>
+    `;
+  }
+
+  private renderObjections(): string {
+    const list = this.objections;
+    const text = formatObjections(list);
+    const copy = this.btn("複製全部", async () => {
+      this.showObjections = false;
+      try {
+        await navigator.clipboard.writeText(text);
+        this.flash("已複製，可以貼到對話裡。");
+      } catch {
+        this.flash("瀏覽器不允許自動複製，請在「疑問」頁長按文字框手動複製。");
+      }
+      this.render();
+    }, "primary");
+    const clear = this.btn("全部刪除", () => {
+      if (!confirm("確定刪除所有疑問紀錄？")) return;
+      this.objections = [];
+      saveObjections([]);
+      this.render();
     });
+    const close = this.btn("關閉", () => { this.showObjections = false; this.render(); });
+    if (!list.length) {
+      return `<h2>疑問紀錄</h2><p class="note">還沒有紀錄。任何講解旁邊都有「我有疑問／看不懂」。</p><div class="row">${close}</div>`;
+    }
+    return `
+      <h2>疑問紀錄（${list.length}）</h2>
+      <textarea class="export" rows="8" readonly>${esc(text)}</textarea>
+      <div class="row">${copy}${clear}${close}</div>
+    `;
   }
 
   private flipButton(): string {
-    return this.btn("翻轉棋盤", () => { this.flipped = !this.flipped; this.render(); });
+    return this.btn("翻轉", () => { this.flipped = !this.flipped; this.render(); });
   }
 
   private renderFeedback(f: Feedback): string {
@@ -421,12 +557,16 @@ export class App {
         ? `<div class="detail">${esc(f.detail)}</div>`
         : this.btn("詳細說明", () => { this.showDetail = true; this.render(); })
       : "";
+    const ask = f.before && f.moveText
+      ? this.renderAsk({ before: f.before, move: f.moveText, explanation: [f.title, f.note, f.detail].filter(Boolean).join(" ") })
+      : "";
     return `
       <div class="verdict ${f.kind}">${esc(f.title)}</div>
       ${f.note ? `<p class="note">${esc(f.note)}</p>` : ""}
       ${detail}
       ${f.principle ? `<p class="principle">${esc(f.principle)}</p>` : ""}
       <div class="row">${f.actions.map(([label, fn], i) => this.btn(label, fn, i === 0 ? "primary" : "")).join("")}</div>
+      ${ask}
     `;
   }
 
@@ -443,6 +583,13 @@ export class App {
       ? `${pb.summary ? `<p class="note"><strong>結論：</strong>${esc(pb.summary)}</p>` : ""}
          ${pb.principle ? `<p class="principle">${esc(pb.principle)}</p>` : ""}`
       : "";
+    const ask = atEnd
+      ? this.renderAsk({
+          before: pb.before,
+          move: pb.steps.map((s) => s.label).join("，"),
+          explanation: [...pb.steps.map((s) => s.note), pb.summary ?? ""].join(" "),
+        })
+      : "";
     return `
       <h2>${esc(pb.title)}</h2>
       <ul class="steps">${list}</ul>
@@ -450,8 +597,9 @@ export class App {
       <div class="row">
         ${this.btn("上一步", () => { pb.index = Math.max(0, pb.index - 1); this.render(); })}
         ${this.btn("下一步", () => { pb.index = Math.min(pb.steps.length - 1, pb.index + 1); this.render(); }, atEnd ? "" : "primary")}
-        ${this.btn("離開推演", () => { this.playback = null; pb.onExit(); }, atEnd ? "primary" : "")}
+        ${this.btn("離開", () => { this.playback = null; this.askOpen = false; pb.onExit(); }, atEnd ? "primary" : "")}
       </div>
+      ${ask}
     `;
   }
 
@@ -459,8 +607,8 @@ export class App {
     const step = this.line[this.idx - 1];
     let body: string;
     if (!step) {
-      body = `<h2>${esc(this.opening.title)}</h2><p class="note">${esc(this.opening.summary)}</p>
-        <p class="muted">按「下一步」開始逐步講解。你也可以隨時在棋盤上走走看，App 會告訴你那一步怎麼樣。</p>`;
+      body = `<p class="note">${esc(this.opening.summary)}</p>
+        <p class="muted">也可以直接在棋盤上走走看。</p>`;
     } else {
       const n = Math.ceil(this.idx / 2);
       const who = sideName(step.before.turn);
@@ -479,6 +627,11 @@ export class App {
       if (this.idx === this.line.length && this.opening.conclusion) {
         body += `<p class="note"><strong>小結：</strong>${esc(this.opening.conclusion)}</p>`;
       }
+      body += this.renderAsk({
+        before: step.before,
+        move: step.node.move,
+        explanation: [step.node.note, step.node.detail].filter(Boolean).join(" "),
+      });
     }
 
     // 下一步的其他選擇（變著與常見錯誤）
@@ -487,7 +640,7 @@ export class App {
     let alts = "";
     if (next && others.length) {
       const who = sideName(next.before.turn);
-      alts = `<p class="muted">接下來${who}的主線是「${esc(next.node.move)}」。其他走法：</p><ul class="alts">` +
+      alts = `<p class="muted">接下來${who}走「${esc(next.node.move)}」。其他走法：</p><ul class="alts">` +
         others.map((c) => {
           const tag = c.kind === "mistake" ? "✗ 常見錯誤" : "○ 也可以";
           const fn = c.kind === "mistake"
@@ -506,9 +659,9 @@ export class App {
       ${body}
       ${alts}
       <div class="row">
-        ${this.btn("回開頭", () => { this.idx = 0; this.showDetail = false; this.syncToLine(); this.render(); })}
-        ${this.btn("上一步", () => { this.idx = Math.max(0, this.idx - 1); this.showDetail = false; this.syncToLine(); this.render(); })}
-        ${this.btn("下一步", () => { this.idx = Math.min(this.line.length, this.idx + 1); this.showDetail = false; this.syncToLine(); this.render(); }, "primary")}
+        ${this.btn("開頭", () => { this.idx = 0; this.showDetail = false; this.askOpen = false; this.syncToLine(); this.render(); })}
+        ${this.btn("上一步", () => { this.idx = Math.max(0, this.idx - 1); this.showDetail = false; this.askOpen = false; this.syncToLine(); this.render(); })}
+        ${this.btn("下一步", () => { this.idx = Math.min(this.line.length, this.idx + 1); this.showDetail = false; this.askOpen = false; this.syncToLine(); this.render(); }, "primary")}
         ${this.flipButton()}
       </div>
     `;
@@ -539,7 +692,6 @@ export class App {
       <h2>第 ${n} 回合 · 輪到你（${sideName(this.learnerSide)}）</h2>
       ${opp}
       <div class="move">你走哪步？</div>
-      <p class="muted">在棋盤上走出你認為的下一步。走錯沒關係，App 會告訴你為什麼。</p>
       ${score}
       <div class="row">${restart}${sideBtn}${this.flipButton()}</div>
     `;
@@ -557,9 +709,7 @@ export class App {
       .map((h, i) => (i % 2 === 0 ? `${i / 2 + 1}. ${h.text}` : h.text))
       .join("　");
     return `
-      <h2>自由走</h2>
       <p class="note">${esc(status)}</p>
-      <p class="muted">兩邊都由你來走，用來熟悉規則。走不合規則的棋，App 會說明原因。</p>
       <div class="row">
         ${this.btn("悔棋", () => {
           const h = this.history.pop();
