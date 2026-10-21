@@ -94,6 +94,7 @@ function engineLine(pa: PositionAnalysis | undefined, ev: MoveEval | undefined, 
 }
 
 const OBJECTIONS_KEY = "cchess.objections";
+const OPENING_KEY = "cchess.opening";
 
 function loadObjections(): Objection[] {
   try {
@@ -130,8 +131,9 @@ export class App {
   private readonly actions = new Map<string, () => void>();
 
   private mode: Mode = "learn";
-  private readonly opening: Opening;
-  private readonly line: Step[];
+  private opening: Opening;
+  private line: Step[];
+  private showLessons = false;
   private flipped = false;
   private learnerSide: Side;
 
@@ -160,7 +162,9 @@ export class App {
   private showObjections = false;
 
   constructor(root: HTMLElement) {
-    const opening = openings[0];
+    let saved: string | null = null;
+    try { saved = localStorage.getItem(OPENING_KEY); } catch { /* 無法存取本機儲存 */ }
+    const opening = openings.find((o) => o.id === saved) ?? openings[0];
     if (!opening) throw new Error("沒有任何開局內容");
     this.opening = opening;
     this.learnerSide = opening.learnerSide;
@@ -189,6 +193,27 @@ export class App {
     });
   }
 
+  // ---------- 課程切換 ----------
+
+  private setOpening(o: Opening): void {
+    this.opening = o;
+    this.line = App.buildLine(o);
+    this.learnerSide = o.learnerSide;
+    this.flipped = o.learnerSide === "b";
+    try { localStorage.setItem(OPENING_KEY, o.id); } catch { /* 忽略 */ }
+    this.setMode(this.mode);
+  }
+
+  private renderLessons(): string {
+    const items = openings.map((o, i) => {
+      const current = o.id === this.opening.id;
+      const tag = o.verified ? "" : `<span class="badge">草稿</span>`;
+      return `<li>${this.btn(`${i + 1}. ${o.title}`, () => { this.showLessons = false; this.setOpening(o); }, current ? "primary" : "")}
+        <p class="muted">${esc(o.summary)} ${tag}</p></li>`;
+    }).join("");
+    return `${this.head("課程", [this.tool("關閉", () => { this.showLessons = false; this.render(); })])}<ul class="lessons">${items}</ul>`;
+  }
+
   // ---------- 模式切換 ----------
 
   private renderTabs(nav: HTMLElement): void {
@@ -209,6 +234,7 @@ export class App {
     this.showDetail = false;
     this.askOpen = false;
     this.showObjections = false;
+    this.showLessons = false;
     if (mode === "learn") {
       this.idx = 0;
       this.syncToLine();
@@ -536,8 +562,12 @@ export class App {
     const n = this.objections.length;
     const draft = this.opening.verified ? "" : `<span class="badge">草稿</span>`;
     this.header.innerHTML = `<h1>${esc(this.opening.title)}</h1><div>${draft}${this.tool(
+      "課程",
+      () => { this.showLessons = !this.showLessons; this.showObjections = false; this.render(); },
+      this.showLessons,
+    )}${this.tool(
       n ? `疑問 ${n}` : "疑問",
-      () => { this.showObjections = !this.showObjections; this.render(); },
+      () => { this.showObjections = !this.showObjections; this.showLessons = false; this.render(); },
       this.showObjections,
     )}</div>`;
 
@@ -566,7 +596,8 @@ export class App {
     });
 
     let html: string;
-    if (this.showObjections) html = this.renderObjections();
+    if (this.showLessons) html = this.renderLessons();
+    else if (this.showObjections) html = this.renderObjections();
     else if (this.playback) html = this.renderPlayback(this.playback);
     else if (this.feedback) html = this.renderFeedback(this.feedback);
     else if (this.mode === "learn") html = this.renderLearn();

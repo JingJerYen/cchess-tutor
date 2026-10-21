@@ -88,3 +88,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 textarea { font: inherit; width: 100%; border: 1.5px solid var(--ink); border-radius: 8px; padding: 8px; background: var(--paper); color: var(--ink); }
 textarea.export { font-size: 0.85rem; }
 .movelist { margin-top: 8px; font-size: 0.95rem; word-break: break-all; }
+ul.lessons { list-style: none; padding: 0; margin: 8px 0 0; }
+ul.lessons li { margin: 0 0 10px; }
+ul.lessons li button { width: 100%; text-align: left; }
+ul.lessons li p { margin: 4px 0 0 4px; }
