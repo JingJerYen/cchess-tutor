@@ -1,0 +1,82 @@
+/* 電子墨水優先：黑白、無動畫、大觸控區 */
+:root {
+  --ink: #000;
+  --paper: #fff;
+  --gray: #d9d9d9;
+  --light: #f2f2f2;
+  font-family: "Noto Serif CJK TC", "Noto Serif TC", "PingFang TC", "Microsoft JhengHei", serif;
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--ink);
+  background: var(--paper);
+}
+* { box-sizing: border-box; transition: none !important; animation: none !important; }
+html, body { margin: 0; padding: 0; background: var(--paper); }
+body { padding: 8px 12px 24px; max-width: 760px; margin: 0 auto; }
+
+header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; }
+header h1 { font-size: 1.25rem; margin: 4px 0; }
+.badge { display: inline-block; border: 2px solid var(--ink); padding: 0 8px; font-size: 0.8rem; border-radius: 4px; }
+
+nav.tabs { display: flex; gap: 6px; margin: 8px 0; }
+nav.tabs button { flex: 1; }
+
+button {
+  font: inherit;
+  min-height: 48px;
+  padding: 8px 14px;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+button.primary, button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+button:disabled { opacity: 0.4; cursor: default; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+.row button { flex: 1 1 auto; }
+
+/* 棋盤 */
+.board { width: 100%; height: auto; display: block; max-height: 62vh; margin: 0 auto; }
+.board .bg { fill: var(--paper); }
+.board .grid line { stroke: var(--ink); stroke-width: 2; }
+.board .grid .frame { fill: none; stroke: var(--ink); stroke-width: 4; }
+.board .grid .mark { fill: none; stroke: var(--ink); stroke-width: 2; }
+.board .river { font-size: 26px; text-anchor: middle; dominant-baseline: middle; letter-spacing: 6px; fill: var(--ink); }
+.board .coord { font-size: 18px; text-anchor: middle; fill: var(--ink); }
+.board .piece .outer { stroke: var(--ink); stroke-width: 3; }
+.board .piece.red .outer { fill: var(--paper); }
+.board .piece.red .inner { fill: none; stroke: var(--ink); stroke-width: 2; }
+.board .piece.black .outer { fill: var(--gray); }
+.board .piece .label { font-size: 30px; font-weight: 700; text-anchor: middle; dominant-baseline: central; fill: var(--ink); pointer-events: none; }
+.board .selected { fill: none; stroke: var(--ink); stroke-width: 5; }
+.board .last { fill: none; stroke: var(--ink); stroke-width: 2; stroke-dasharray: 6 4; }
+.board .dot { fill: var(--ink); }
+.board .capture { fill: none; stroke: var(--ink); stroke-width: 4; stroke-dasharray: 8 5; }
+.board .markring { fill: none; stroke: var(--ink); stroke-width: 3; }
+.board .touch rect { fill: transparent; cursor: pointer; }
+
+/* 說明面板 */
+.panel { border: 2px solid var(--ink); border-radius: 8px; padding: 12px 14px; margin-top: 10px; min-height: 120px; }
+.panel h2 { font-size: 1.1rem; margin: 0 0 6px; }
+.panel .move { font-size: 1.4rem; font-weight: 700; }
+.panel .note { margin: 6px 0; }
+.panel .detail { margin: 8px 0; padding: 8px 12px; background: var(--light); border-left: 4px solid var(--ink); }
+.panel .principle { margin: 8px 0; font-weight: 700; }
+.panel .principle::before { content: "心法："; }
+.panel .muted { opacity: 0.7; font-size: 0.95rem; }
+.panel .verdict { font-size: 1.2rem; font-weight: 700; margin-bottom: 4px; }
+.panel .verdict.bad::before { content: "✗ "; }
+.panel .verdict.ok::before { content: "✓ "; }
+.panel .verdict.so::before { content: "○ "; }
+.panel .verdict.rule::before { content: "！"; }
+.panel ul.alts { list-style: none; padding: 0; margin: 8px 0 0; }
+.panel ul.alts li { margin: 6px 0; }
+.panel ul.alts button { width: 100%; text-align: left; min-height: 44px; }
+.panel .steps { margin: 8px 0; padding-left: 0; list-style: none; }
+.panel .steps li { padding: 4px 0; border-bottom: 1px solid var(--gray); }
+.panel .steps li.current { font-weight: 700; background: var(--light); }
+.panel .steps li.future { opacity: 0.45; }
+.movelist { margin-top: 10px; font-size: 0.95rem; word-break: break-all; }
+.legend { font-size: 0.85rem; margin: 4px 0; opacity: 0.8; }
+footer { margin-top: 18px; font-size: 0.8rem; opacity: 0.7; }
